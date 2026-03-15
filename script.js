@@ -100,7 +100,9 @@ function sanitizeDueDate(dueDate) {
         return "";
     }
 
-    return /^\d{4}-\d{2}-\d{2}$/.test(dueDate) ? dueDate : "";
+    const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(dueDate);
+    const isDateTime = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(dueDate);
+    return isDateOnly || isDateTime ? dueDate : "";
 }
 
 function createId() {
@@ -117,7 +119,6 @@ function createTask(taskTextValue, priorityValue, dueDateValue, categoryValue) {
         dueDate: sanitizeDueDate(dueDateValue),
         category: formatCategory(categoryValue),
         completed: false,
-        completedAt: null,
         createdAt: Date.now()
     };
 }
@@ -153,7 +154,6 @@ function loadTasks() {
                 dueDate: sanitizeDueDate(task.dueDate),
                 category: formatCategory(typeof task.category === "string" ? task.category : DEFAULT_CATEGORY),
                 completed: Boolean(task.completed),
-                completedAt: typeof task.completedAt === "number" ? task.completedAt : null,
                 createdAt: typeof task.createdAt === "number" ? task.createdAt : Date.now()
             }))
             .filter((task) => Boolean(task.text));
@@ -228,28 +228,36 @@ function initializeTheme() {
     applyTheme(prefersDarkMode ? "dark" : "light");
 }
 
-function getTodayDateOnly() {
-    const today = new Date();
-    return new Date(today.getFullYear(), today.getMonth(), today.getDate());
+function getCurrentDateTime() {
+    return new Date();
+}
+
+function isSameCalendarDate(firstDate, secondDate) {
+    return firstDate.getFullYear() === secondDate.getFullYear()
+        && firstDate.getMonth() === secondDate.getMonth()
+        && firstDate.getDate() === secondDate.getDate();
 }
 
 function getDueDateObject(dueDate) {
-    if (!dueDate) {
+    const normalizedDueDate = sanitizeDueDate(dueDate);
+    if (!normalizedDueDate) {
         return null;
     }
 
-    const parsedDate = new Date(`${dueDate}T00:00:00`);
+    const parsedValue = /^\d{4}-\d{2}-\d{2}$/.test(normalizedDueDate)
+        ? `${normalizedDueDate}T23:59`
+        : normalizedDueDate;
+    const parsedDate = new Date(parsedValue);
     return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
 }
 
-function getDaysUntilDue(task) {
+function getTimeUntilDue(task) {
     const dueDate = getDueDateObject(task.dueDate);
     if (!dueDate) {
         return null;
     }
 
-    const millisecondsPerDay = 1000 * 60 * 60 * 24;
-    return Math.round((dueDate - getTodayDateOnly()) / millisecondsPerDay);
+    return dueDate.getTime() - getCurrentDateTime().getTime();
 }
 
 function getDueStatus(task) {
@@ -257,17 +265,18 @@ function getDueStatus(task) {
         return "none";
     }
 
-    const daysUntilDue = getDaysUntilDue(task);
-    if (daysUntilDue === null) {
+    const dueDate = getDueDateObject(task.dueDate);
+    const timeUntilDue = getTimeUntilDue(task);
+    if (!dueDate || timeUntilDue === null) {
         return "none";
     }
-    if (daysUntilDue < 0) {
+    if (timeUntilDue < 0) {
         return "overdue";
     }
-    if (daysUntilDue === 0) {
+    if (isSameCalendarDate(dueDate, getCurrentDateTime())) {
         return "today";
     }
-    if (daysUntilDue <= DUE_SOON_WINDOW_DAYS) {
+    if (timeUntilDue <= DUE_SOON_WINDOW_DAYS * 24 * 60 * 60 * 1000) {
         return "soon";
     }
 
@@ -286,28 +295,31 @@ function isDueSoon(task) {
 function formatDueDate(dueDate) {
     const parsedDate = getDueDateObject(dueDate);
     return parsedDate
-        ? parsedDate.toLocaleDateString(undefined, {
+        ? parsedDate.toLocaleString(undefined, {
               year: "numeric",
               month: "short",
-              day: "numeric"
+              day: "numeric",
+              hour: "numeric",
+              minute: "2-digit"
           })
         : "";
 }
 
-function formatCompletedTime(completedAt) {
-    if (typeof completedAt !== "number") {
+function formatDueDateInputValue(dueDate) {
+    const normalizedDueDate = sanitizeDueDate(dueDate);
+    if (!normalizedDueDate) {
         return "";
     }
 
-    return new Date(completedAt).toLocaleTimeString(undefined, {
-        hour: "numeric",
-        minute: "2-digit"
-    });
+    return /^\d{4}-\d{2}-\d{2}$/.test(normalizedDueDate)
+        ? `${normalizedDueDate}T23:59`
+        : normalizedDueDate;
 }
 
 function updateDateWarning() {
     const dueDate = sanitizeDueDate(taskDueDate.value);
-    const isPastDue = Boolean(dueDate) && getDueDateObject(dueDate) < getTodayDateOnly();
+    const dueDateObject = getDueDateObject(dueDate);
+    const isPastDue = Boolean(dueDateObject) && dueDateObject < getCurrentDateTime();
     dateWarning.hidden = !isPastDue;
     taskDueDate.setAttribute("aria-invalid", String(isPastDue));
 }
@@ -506,7 +518,7 @@ function resetForm() {
 function populateFormForEdit(task) {
     taskInput.value = task.text;
     taskPriority.value = task.priority;
-    taskDueDate.value = task.dueDate;
+    taskDueDate.value = formatDueDateInputValue(task.dueDate);
     taskCategory.value = task.category === DEFAULT_CATEGORY ? "" : task.category;
     setFormMode(task);
     updateDateWarning();
@@ -622,10 +634,6 @@ function createTaskElement(task) {
         taskMeta.appendChild(createBadge("Due Today", "task-due-today"));
     } else if (dueStatus === "soon") {
         taskMeta.appendChild(createBadge("Due Soon", "task-due-soon"));
-    }
-
-    if (task.completed && typeof task.completedAt === "number") {
-        taskMeta.appendChild(createBadge(`Finished ${formatCompletedTime(task.completedAt)}`, "completed-time-badge"));
     }
 
     taskContent.append(taskText, taskMeta);
@@ -849,7 +857,6 @@ taskList.addEventListener("change", (event) => {
     }
 
     task.completed = target.checked;
-    task.completedAt = target.checked ? Date.now() : null;
     saveTasks();
     renderTasks();
     announce(task.completed ? `Completed: ${task.text}` : `Reopened: ${task.text}`);
@@ -895,11 +902,9 @@ toggleAllButton.addEventListener("click", () => {
     }
 
     const shouldCompleteAll = appState.tasks.some((task) => !task.completed);
-    const completedAt = Date.now();
     appState.tasks = appState.tasks.map((task) => ({
         ...task,
-        completed: shouldCompleteAll,
-        completedAt: shouldCompleteAll ? task.completedAt ?? completedAt : null
+        completed: shouldCompleteAll
     }));
 
     saveTasks();
@@ -938,4 +943,5 @@ document.addEventListener("keydown", handleKeyboardShortcuts);
 
 resetForm();
 initializeApp();
+
 

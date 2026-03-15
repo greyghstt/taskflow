@@ -83,8 +83,8 @@
                         </select>
                     </div>
                     <div class="field-group">
-                        <label for="task-due-date">Due date</label>
-                        <input id="task-due-date" name="dueDate" type="date" aria-describedby="date-help">
+                        <label for="task-due-date">Deadline</label>
+                        <input id="task-due-date" name="dueDate" type="datetime-local" aria-describedby="date-help">
                     </div>
                 </div>
                 <div class="meta-row meta-row--wide">
@@ -106,8 +106,8 @@
                         </datalist>
                     </div>
                 </div>
-                <p id="date-help" class="form-help">Past dates are allowed, but they will be marked as overdue.</p>
-                <p id="date-warning" class="date-warning" hidden>Selected due date is in the past.</p>
+                <p id="date-help" class="form-help">Choose the date and time when the task should be finished.</p>
+                <p id="date-warning" class="date-warning" hidden>Selected deadline is already in the past.</p>
                 <p id="form-help" class="form-help">Press Enter or select Add Task.</p>
             </form>
 
@@ -170,3 +170,4 @@
     <script src="script.js" defer></script>
 </body>
 </html>
+

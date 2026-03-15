@@ -2,6 +2,9 @@ const taskForm = document.getElementById("task-form");
 const taskInput = document.getElementById("task-input");
 const taskPriority = document.getElementById("task-priority");
 const taskDueDate = document.getElementById("task-due-date");
+const taskCategory = document.getElementById("task-category");
+const taskCategorySuggestions = document.getElementById("task-category-suggestions");
+const taskCategoryFilter = document.getElementById("task-category-filter");
 const taskList = document.getElementById("task-list");
 const taskCounter = document.getElementById("task-counter");
 const emptyState = document.getElementById("empty-state");
@@ -14,9 +17,21 @@ const toggleAllButton = document.getElementById("toggle-all-btn");
 const clearCompletedButton = document.getElementById("clear-completed-btn");
 const addTaskButton = document.getElementById("add-task-btn");
 const cancelEditButton = document.getElementById("cancel-edit-btn");
+const completionRate = document.getElementById("completion-rate");
+const pendingCount = document.getElementById("pending-count");
+const dueSoonCount = document.getElementById("due-soon-count");
+const categoryCount = document.getElementById("category-count");
+const progressFill = document.getElementById("progress-fill");
+const dateWarning = document.getElementById("date-warning");
+const undoBanner = document.getElementById("undo-banner");
+const undoMessage = document.getElementById("undo-message");
+const undoDeleteButton = document.getElementById("undo-delete-btn");
 
-const TASKS_STORAGE_KEY = "taskflow-tasks";
-const THEME_STORAGE_KEY = "taskflow-theme";
+const STORAGE_KEYS = {
+    tasks: "taskflow-tasks",
+    theme: "taskflow-theme",
+    preferences: "taskflow-preferences"
+};
 const PRIORITY_RANK = {
     high: 0,
     medium: 1,
@@ -27,10 +42,23 @@ const PRIORITY_LABEL = {
     medium: "Medium Priority",
     low: "Low Priority"
 };
+const DEFAULT_CATEGORY = "General";
+const DEFAULT_CATEGORIES = [DEFAULT_CATEGORY, "Work", "Personal", "Study", "Errands"];
+const VALID_FILTERS = new Set(["all", "completed", "pending"]);
+const VALID_SORTS = new Set(["newest", "oldest", "priority", "dueDate", "alphabetical"]);
+const DUE_SOON_WINDOW_DAYS = 3;
+const UNDO_TIMEOUT_MS = 5000;
 
-let tasks = [];
-let currentFilter = "all";
-let currentEditTaskId = null;
+const appState = {
+    tasks: [],
+    filter: "all",
+    search: "",
+    sort: "newest",
+    categoryFilter: "all",
+    editingTaskId: null,
+    lastRemovedEntries: null,
+    undoTimeoutId: null
+};
 
 function getStoredValueSafely(key) {
     try {
@@ -44,20 +72,27 @@ function setStoredValueSafely(key, value) {
     try {
         localStorage.setItem(key, value);
     } catch (_error) {
-        // Ignore storage failures and continue with in-memory state.
+        // Continue gracefully when storage is blocked.
     }
 }
 
-function normalizeTaskText(text) {
+function normalizeText(text) {
     return text.trim().replace(/\s+/g, " ");
 }
 
-function sanitizePriority(priority) {
-    if (priority === "high" || priority === "medium" || priority === "low") {
-        return priority;
+function formatCategory(category) {
+    const normalizedCategory = normalizeText(category);
+    if (!normalizedCategory) {
+        return DEFAULT_CATEGORY;
     }
 
-    return "medium";
+    return normalizedCategory
+        .toLowerCase()
+        .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function sanitizePriority(priority) {
+    return PRIORITY_LABEL[priority] ? priority : "medium";
 }
 
 function sanitizeDueDate(dueDate) {
@@ -65,20 +100,22 @@ function sanitizeDueDate(dueDate) {
         return "";
     }
 
-    const isValidDate = /^\d{4}-\d{2}-\d{2}$/.test(dueDate);
-    return isValidDate ? dueDate : "";
+    return /^\d{4}-\d{2}-\d{2}$/.test(dueDate) ? dueDate : "";
 }
 
-function createTask(taskInputValue, priorityValue, dueDateValue) {
-    const generatedId = globalThis.crypto?.randomUUID
+function createId() {
+    return globalThis.crypto?.randomUUID
         ? globalThis.crypto.randomUUID()
         : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
 
+function createTask(taskTextValue, priorityValue, dueDateValue, categoryValue) {
     return {
-        id: generatedId,
-        text: normalizeTaskText(taskInputValue),
+        id: createId(),
+        text: normalizeText(taskTextValue),
         priority: sanitizePriority(priorityValue),
         dueDate: sanitizeDueDate(dueDateValue),
+        category: formatCategory(categoryValue),
         completed: false,
         createdAt: Date.now()
     };
@@ -92,11 +129,11 @@ function announce(message) {
 }
 
 function saveTasks() {
-    setStoredValueSafely(TASKS_STORAGE_KEY, JSON.stringify(tasks));
+    setStoredValueSafely(STORAGE_KEYS.tasks, JSON.stringify(appState.tasks));
 }
 
 function loadTasks() {
-    const rawValue = getStoredValueSafely(TASKS_STORAGE_KEY);
+    const rawValue = getStoredValueSafely(STORAGE_KEYS.tasks);
     if (!rawValue) {
         return [];
     }
@@ -109,10 +146,11 @@ function loadTasks() {
 
         return parsedValue
             .map((task) => ({
-                id: typeof task.id === "string" ? task.id : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-                text: normalizeTaskText(typeof task.text === "string" ? task.text : ""),
+                id: typeof task.id === "string" ? task.id : createId(),
+                text: normalizeText(typeof task.text === "string" ? task.text : ""),
                 priority: sanitizePriority(task.priority),
                 dueDate: sanitizeDueDate(task.dueDate),
+                category: formatCategory(typeof task.category === "string" ? task.category : DEFAULT_CATEGORY),
                 completed: Boolean(task.completed),
                 createdAt: typeof task.createdAt === "number" ? task.createdAt : Date.now()
             }))
@@ -122,12 +160,48 @@ function loadTasks() {
     }
 }
 
+function savePreferences() {
+    const preferences = {
+        filter: appState.filter,
+        search: appState.search,
+        sort: appState.sort,
+        categoryFilter: appState.categoryFilter
+    };
+
+    setStoredValueSafely(STORAGE_KEYS.preferences, JSON.stringify(preferences));
+}
+
+function loadPreferences() {
+    const rawValue = getStoredValueSafely(STORAGE_KEYS.preferences);
+    if (!rawValue) {
+        return;
+    }
+
+    try {
+        const parsedValue = JSON.parse(rawValue);
+        if (VALID_FILTERS.has(parsedValue.filter)) {
+            appState.filter = parsedValue.filter;
+        }
+        if (typeof parsedValue.search === "string") {
+            appState.search = normalizeText(parsedValue.search);
+        }
+        if (VALID_SORTS.has(parsedValue.sort)) {
+            appState.sort = parsedValue.sort;
+        }
+        if (typeof parsedValue.categoryFilter === "string") {
+            appState.categoryFilter = parsedValue.categoryFilter;
+        }
+    } catch (_error) {
+        // Ignore malformed preference data and use defaults.
+    }
+}
+
 function getStoredThemeSafely() {
-    return getStoredValueSafely(THEME_STORAGE_KEY);
+    return getStoredValueSafely(STORAGE_KEYS.theme);
 }
 
 function setStoredThemeSafely(theme) {
-    setStoredValueSafely(THEME_STORAGE_KEY, theme);
+    setStoredValueSafely(STORAGE_KEYS.theme, theme);
 }
 
 function applyTheme(theme) {
@@ -152,72 +226,124 @@ function initializeTheme() {
     applyTheme(prefersDarkMode ? "dark" : "light");
 }
 
-function isOverdue(task) {
-    if (!task.dueDate || task.completed) {
-        return false;
-    }
-
+function getTodayDateOnly() {
     const today = new Date();
-    const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const dueDate = new Date(`${task.dueDate}T00:00:00`);
-    return dueDate < todayDateOnly;
+    return new Date(today.getFullYear(), today.getMonth(), today.getDate());
 }
 
-function formatDueDate(dueDate) {
+function getDueDateObject(dueDate) {
     if (!dueDate) {
-        return "";
+        return null;
     }
 
     const parsedDate = new Date(`${dueDate}T00:00:00`);
-    return Number.isNaN(parsedDate.getTime())
-        ? ""
-        : parsedDate.toLocaleDateString(undefined, {
+    return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
+}
+
+function getDaysUntilDue(task) {
+    const dueDate = getDueDateObject(task.dueDate);
+    if (!dueDate) {
+        return null;
+    }
+
+    const millisecondsPerDay = 1000 * 60 * 60 * 24;
+    return Math.round((dueDate - getTodayDateOnly()) / millisecondsPerDay);
+}
+
+function getDueStatus(task) {
+    if (!task.dueDate || task.completed) {
+        return "none";
+    }
+
+    const daysUntilDue = getDaysUntilDue(task);
+    if (daysUntilDue === null) {
+        return "none";
+    }
+    if (daysUntilDue < 0) {
+        return "overdue";
+    }
+    if (daysUntilDue === 0) {
+        return "today";
+    }
+    if (daysUntilDue <= DUE_SOON_WINDOW_DAYS) {
+        return "soon";
+    }
+
+    return "future";
+}
+
+function isOverdue(task) {
+    return getDueStatus(task) === "overdue";
+}
+
+function isDueSoon(task) {
+    const dueStatus = getDueStatus(task);
+    return dueStatus === "today" || dueStatus === "soon";
+}
+
+function formatDueDate(dueDate) {
+    const parsedDate = getDueDateObject(dueDate);
+    return parsedDate
+        ? parsedDate.toLocaleDateString(undefined, {
               year: "numeric",
               month: "short",
               day: "numeric"
-          });
+          })
+        : "";
+}
+
+function updateDateWarning() {
+    const dueDate = sanitizeDueDate(taskDueDate.value);
+    const isPastDue = Boolean(dueDate) && getDueDateObject(dueDate) < getTodayDateOnly();
+    dateWarning.hidden = !isPastDue;
+    taskDueDate.setAttribute("aria-invalid", String(isPastDue));
+}
+
+function matchesSearch(task) {
+    if (!appState.search) {
+        return true;
+    }
+
+    const searchText = appState.search.toLowerCase();
+    return task.text.toLowerCase().includes(searchText) || task.category.toLowerCase().includes(searchText);
 }
 
 function isTaskVisible(task) {
-    if (currentFilter === "completed" && !task.completed) {
+    if (appState.filter === "completed" && !task.completed) {
         return false;
     }
 
-    if (currentFilter === "pending" && task.completed) {
+    if (appState.filter === "pending" && task.completed) {
         return false;
     }
 
-    const searchValue = normalizeTaskText(taskSearch.value).toLowerCase();
-    if (searchValue && !task.text.toLowerCase().includes(searchValue)) {
+    if (appState.categoryFilter !== "all" && task.category !== appState.categoryFilter) {
         return false;
     }
 
-    return true;
+    return matchesSearch(task);
 }
 
-function getSortedTasks(taskItems) {
-    const sortValue = taskSort.value;
-    const sortedItems = [...taskItems];
+function getSortedTasks(tasksToSort) {
+    const sortedTasks = [...tasksToSort];
 
-    sortedItems.sort((firstTask, secondTask) => {
-        if (sortValue === "oldest") {
+    sortedTasks.sort((firstTask, secondTask) => {
+        if (appState.sort === "oldest") {
             return firstTask.createdAt - secondTask.createdAt;
         }
 
-        if (sortValue === "priority") {
+        if (appState.sort === "priority") {
             const priorityDifference = PRIORITY_RANK[firstTask.priority] - PRIORITY_RANK[secondTask.priority];
             return priorityDifference || secondTask.createdAt - firstTask.createdAt;
         }
 
-        if (sortValue === "dueDate") {
+        if (appState.sort === "dueDate") {
             if (!firstTask.dueDate && !secondTask.dueDate) {
                 return secondTask.createdAt - firstTask.createdAt;
             }
-
             if (!firstTask.dueDate) {
                 return 1;
             }
-
             if (!secondTask.dueDate) {
                 return -1;
             }
@@ -226,7 +352,7 @@ function getSortedTasks(taskItems) {
             return dateDifference || secondTask.createdAt - firstTask.createdAt;
         }
 
-        if (sortValue === "alphabetical") {
+        if (appState.sort === "alphabetical") {
             const textDifference = firstTask.text.localeCompare(secondTask.text);
             return textDifference || secondTask.createdAt - firstTask.createdAt;
         }
@@ -234,36 +360,94 @@ function getSortedTasks(taskItems) {
         return secondTask.createdAt - firstTask.createdAt;
     });
 
-    return sortedItems;
+    return sortedTasks;
+}
+
+function getVisibleTasks() {
+    return getSortedTasks(appState.tasks.filter((task) => isTaskVisible(task)));
+}
+
+function updateCategoryOptions() {
+    const categories = new Set(DEFAULT_CATEGORIES);
+    appState.tasks.forEach((task) => {
+        categories.add(task.category);
+    });
+
+    const sortedCategories = [...categories].sort((firstCategory, secondCategory) => firstCategory.localeCompare(secondCategory));
+
+    taskCategoryFilter.textContent = "";
+    const allOption = document.createElement("option");
+    allOption.value = "all";
+    allOption.textContent = "All categories";
+    taskCategoryFilter.appendChild(allOption);
+
+    taskCategorySuggestions.textContent = "";
+
+    sortedCategories.forEach((category) => {
+        const filterOption = document.createElement("option");
+        filterOption.value = category;
+        filterOption.textContent = category;
+        taskCategoryFilter.appendChild(filterOption);
+
+        const suggestionOption = document.createElement("option");
+        suggestionOption.value = category;
+        taskCategorySuggestions.appendChild(suggestionOption);
+    });
+
+    const categoryStillExists = sortedCategories.includes(appState.categoryFilter);
+    if (appState.categoryFilter !== "all" && !categoryStillExists) {
+        appState.categoryFilter = "all";
+        savePreferences();
+    }
+
+    taskCategoryFilter.value = appState.categoryFilter;
 }
 
 function updateFilterButtons() {
     filterButtons.forEach((button) => {
-        const isActive = button.dataset.filter === currentFilter;
+        const isActive = button.dataset.filter === appState.filter;
         button.classList.toggle("is-active", isActive);
         button.setAttribute("aria-pressed", String(isActive));
     });
 }
 
-function updateTaskStatus(visibleTaskCount) {
-    const completedCount = tasks.filter((task) => task.completed).length;
-    const overdueCount = tasks.filter((task) => isOverdue(task)).length;
-    taskCounter.textContent = `${tasks.length} tasks total, ${completedCount} completed, ${overdueCount} overdue`;
+function updateOverview() {
+    const totalTasks = appState.tasks.length;
+    const completedTasks = appState.tasks.filter((task) => task.completed).length;
+    const pendingTasks = totalTasks - completedTasks;
+    const dueSoonTasks = appState.tasks.filter((task) => isDueSoon(task)).length;
+    const categoryTotal = new Set(appState.tasks.map((task) => task.category)).size;
+    const completionPercent = totalTasks === 0 ? 0 : Math.round((completedTasks / totalTasks) * 100);
 
-    if (tasks.length === 0) {
-        emptyState.textContent = "No tasks yet. Add one to get started.";
+    completionRate.textContent = `${completionPercent}%`;
+    pendingCount.textContent = String(pendingTasks);
+    dueSoonCount.textContent = String(dueSoonTasks);
+    categoryCount.textContent = String(categoryTotal);
+    progressFill.style.width = `${completionPercent}%`;
+}
+
+function updateTaskStatus(visibleTaskCount) {
+    const completedCount = appState.tasks.filter((task) => task.completed).length;
+    const overdueCount = appState.tasks.filter((task) => isOverdue(task)).length;
+    taskCounter.textContent = `${appState.tasks.length} tasks total, ${completedCount} completed, ${overdueCount} overdue`;
+
+    if (appState.tasks.length === 0) {
+        emptyState.textContent = "No tasks yet. Add your first task to start building momentum.";
         emptyState.hidden = false;
         return;
     }
 
     if (visibleTaskCount === 0) {
-        const hasSearchValue = Boolean(normalizeTaskText(taskSearch.value));
-        if (hasSearchValue) {
+        if (appState.search && appState.categoryFilter !== "all") {
+            emptyState.textContent = "No tasks match this search and category combination.";
+        } else if (appState.search) {
             emptyState.textContent = "No tasks match your search.";
-        } else if (currentFilter === "completed") {
-            emptyState.textContent = "No completed tasks yet.";
-        } else if (currentFilter === "pending") {
-            emptyState.textContent = "No pending tasks right now.";
+        } else if (appState.categoryFilter !== "all") {
+            emptyState.textContent = `No tasks in the ${appState.categoryFilter} category right now.`;
+        } else if (appState.filter === "completed") {
+            emptyState.textContent = "Nothing completed yet. Finish a task to see it here.";
+        } else if (appState.filter === "pending") {
+            emptyState.textContent = "Everything is done. Nice work.";
         } else {
             emptyState.textContent = "No tasks to show.";
         }
@@ -275,56 +459,107 @@ function updateTaskStatus(visibleTaskCount) {
 }
 
 function updateBulkActionState() {
-    const hasTasks = tasks.length > 0;
-    const hasCompletedTasks = tasks.some((task) => task.completed);
-    const hasPendingTasks = tasks.some((task) => !task.completed);
+    const hasTasks = appState.tasks.length > 0;
+    const hasCompletedTasks = appState.tasks.some((task) => task.completed);
+    const hasPendingTasks = appState.tasks.some((task) => !task.completed);
 
     toggleAllButton.disabled = !hasTasks;
     clearCompletedButton.disabled = !hasCompletedTasks;
     toggleAllButton.textContent = hasPendingTasks ? "Complete All" : "Reopen All";
 }
 
+function setFormMode(task) {
+    if (!task) {
+        appState.editingTaskId = null;
+        addTaskButton.textContent = "Add Task";
+        cancelEditButton.hidden = true;
+        return;
+    }
+
+    appState.editingTaskId = task.id;
+    addTaskButton.textContent = "Save Task";
+    cancelEditButton.hidden = false;
+}
+
 function resetForm() {
     taskForm.reset();
     taskPriority.value = "medium";
-    currentEditTaskId = null;
-    addTaskButton.textContent = "Add Task";
-    cancelEditButton.hidden = true;
+    taskCategory.value = "";
     taskInput.setCustomValidity("");
+    setFormMode(null);
+    updateDateWarning();
 }
 
-function startEditTask(taskId) {
-    const task = tasks.find((item) => item.id === taskId);
-    if (!task) {
-        return;
-    }
-
-    currentEditTaskId = task.id;
+function populateFormForEdit(task) {
     taskInput.value = task.text;
     taskPriority.value = task.priority;
     taskDueDate.value = task.dueDate;
-    addTaskButton.textContent = "Save Task";
-    cancelEditButton.hidden = false;
+    taskCategory.value = task.category === DEFAULT_CATEGORY ? "" : task.category;
+    setFormMode(task);
+    updateDateWarning();
     taskInput.focus();
     taskInput.setSelectionRange(taskInput.value.length, taskInput.value.length);
-    announce(`Editing task: ${task.text}`);
 }
 
-function finishEditTask(updatedText, updatedPriority, updatedDueDate) {
-    const task = tasks.find((item) => item.id === currentEditTaskId);
+function startEditTask(taskId) {
+    const task = appState.tasks.find((item) => item.id === taskId);
     if (!task) {
-        resetForm();
         return;
     }
 
-    task.text = normalizeTaskText(updatedText);
-    task.priority = sanitizePriority(updatedPriority);
-    task.dueDate = sanitizeDueDate(updatedDueDate);
+    populateFormForEdit(task);
+    announce(`Editing task: ${task.text}`);
+}
+
+function clearUndoState() {
+    if (appState.undoTimeoutId) {
+        clearTimeout(appState.undoTimeoutId);
+    }
+
+    appState.undoTimeoutId = null;
+    appState.lastRemovedEntries = null;
+    undoBanner.hidden = true;
+}
+
+function queueUndo(entries, message) {
+    clearUndoState();
+    appState.lastRemovedEntries = entries;
+    undoMessage.textContent = message;
+    undoBanner.hidden = false;
+    appState.undoTimeoutId = window.setTimeout(() => {
+        clearUndoState();
+    }, UNDO_TIMEOUT_MS);
+}
+
+function restoreRemovedTasks() {
+    if (!appState.lastRemovedEntries?.length) {
+        return;
+    }
+
+    const entriesToRestore = [...appState.lastRemovedEntries].sort((firstEntry, secondEntry) => firstEntry.index - secondEntry.index);
+    entriesToRestore.forEach(({ task, index }) => {
+        const safeIndex = Math.min(Math.max(index, 0), appState.tasks.length);
+        appState.tasks.splice(safeIndex, 0, task);
+    });
+
     saveTasks();
-    resetForm();
+    clearUndoState();
     renderTasks();
-    taskInput.focus();
-    announce(`Updated: ${task.text}`);
+    announce(`${entriesToRestore.length} task${entriesToRestore.length === 1 ? "" : "s"} restored.`);
+}
+
+function removeTasks(entries, message) {
+    const idsToRemove = new Set(entries.map((entry) => entry.task.id));
+    appState.tasks = appState.tasks.filter((task) => !idsToRemove.has(task.id));
+
+    if (entries.some((entry) => entry.task.id === appState.editingTaskId)) {
+        resetForm();
+    }
+
+    saveTasks();
+    renderTasks();
+    queueUndo(entries, message);
+    undoDeleteButton.focus();
 }
 
 function createBadge(label, className) {
@@ -361,13 +596,19 @@ function createTaskElement(task) {
     const taskMeta = document.createElement("div");
     taskMeta.className = "task-meta";
     taskMeta.appendChild(createBadge(PRIORITY_LABEL[task.priority], `priority-${task.priority}`));
+    taskMeta.appendChild(createBadge(task.category, "category-badge"));
 
     if (task.dueDate) {
         taskMeta.appendChild(createBadge(`Due ${formatDueDate(task.dueDate)}`, "task-due-date"));
     }
 
-    if (isOverdue(task)) {
+    const dueStatus = getDueStatus(task);
+    if (dueStatus === "overdue") {
         taskMeta.appendChild(createBadge("Overdue", "task-overdue"));
+    } else if (dueStatus === "today") {
+        taskMeta.appendChild(createBadge("Due Today", "task-due-today"));
+    } else if (dueStatus === "soon") {
+        taskMeta.appendChild(createBadge("Due Soon", "task-due-soon"));
     }
 
     taskContent.append(taskText, taskMeta);
@@ -393,87 +634,190 @@ function createTaskElement(task) {
 }
 
 function renderTasks() {
-    const visibleTasks = tasks.filter((task) => isTaskVisible(task));
-    const sortedVisibleTasks = getSortedTasks(visibleTasks);
+    const visibleTasks = getVisibleTasks();
     const taskFragment = document.createDocumentFragment();
 
-    sortedVisibleTasks.forEach((task) => {
+    visibleTasks.forEach((task) => {
         taskFragment.appendChild(createTaskElement(task));
     });
 
     taskList.textContent = "";
     taskList.appendChild(taskFragment);
-    updateTaskStatus(sortedVisibleTasks.length);
+    updateCategoryOptions();
     updateFilterButtons();
+    updateOverview();
+    updateTaskStatus(visibleTasks.length);
     updateBulkActionState();
 }
 
-function addTask(taskTextValue, priorityValue, dueDateValue) {
-    const task = createTask(taskTextValue, priorityValue, dueDateValue);
+function addTask(taskTextValue, priorityValue, dueDateValue, categoryValue) {
+    const task = createTask(taskTextValue, priorityValue, dueDateValue, categoryValue);
     if (!task.text) {
         return false;
     }
 
-    tasks.push(task);
+    appState.tasks.push(task);
     saveTasks();
     renderTasks();
     announce(`Added: ${task.text}`);
     return true;
 }
 
+function updateTask(taskId, updates) {
+    const task = appState.tasks.find((item) => item.id === taskId);
+    if (!task) {
+        return;
+    }
+
+    task.text = normalizeText(updates.text);
+    task.priority = sanitizePriority(updates.priority);
+    task.dueDate = sanitizeDueDate(updates.dueDate);
+    task.category = formatCategory(updates.category);
+    saveTasks();
+    resetForm();
+    renderTasks();
+    taskInput.focus();
+    announce(`Updated: ${task.text}`);
+}
+
+function syncControlsWithPreferences() {
+    taskSearch.value = appState.search;
+    taskSort.value = appState.sort;
+}
+
+function handleFilterChange(nextFilter) {
+    appState.filter = nextFilter;
+    savePreferences();
+    renderTasks();
+    announce(`Filter set to ${nextFilter}.`);
+}
+
+function handleSearchChange(value) {
+    appState.search = normalizeText(value);
+    savePreferences();
+    renderTasks();
+}
+
+function handleSortChange(value) {
+    appState.sort = VALID_SORTS.has(value) ? value : "newest";
+    savePreferences();
+    renderTasks();
+    announce(`Sorting by ${taskSort.options[taskSort.selectedIndex].text.toLowerCase()}.`);
+}
+
+function handleCategoryFilterChange(value) {
+    appState.categoryFilter = value || "all";
+    savePreferences();
+    renderTasks();
+    announce(appState.categoryFilter === "all" ? "Showing all categories." : `Category filter set to ${appState.categoryFilter}.`);
+}
+
+function isEditableTarget(target) {
+    return target instanceof HTMLElement && (target.closest("input, textarea, select, button") !== null || target.isContentEditable);
+}
+
+function handleKeyboardShortcuts(event) {
+    if (event.altKey || event.ctrlKey || event.metaKey) {
+        return;
+    }
+
+    const target = event.target;
+    if (event.key === "/" && !isEditableTarget(target)) {
+        event.preventDefault();
+        taskSearch.focus();
+        taskSearch.select();
+        return;
+    }
+
+    if (event.key.toLowerCase() === "n" && !isEditableTarget(target)) {
+        event.preventDefault();
+        taskInput.focus();
+        return;
+    }
+
+    if (event.key === "Escape") {
+        if (appState.editingTaskId) {
+            resetForm();
+            taskInput.focus();
+            announce("Edit cancelled.");
+            return;
+        }
+
+        if (taskSearch.value) {
+            taskSearch.value = "";
+            handleSearchChange("");
+            announce("Search cleared.");
+        }
+    }
+}
+
+function initializeApp() {
+    appState.tasks = loadTasks();
+    loadPreferences();
+    syncControlsWithPreferences();
+    initializeTheme();
+    updateDateWarning();
+    renderTasks();
+}
+
 taskForm.addEventListener("submit", (event) => {
     event.preventDefault();
 
-    const normalizedValue = normalizeTaskText(taskInput.value);
-    if (!normalizedValue) {
-        taskInput.setCustomValidity("Please enter a task before adding.");
-    } else {
-        taskInput.setCustomValidity("");
-    }
+    const normalizedValue = normalizeText(taskInput.value);
+    taskInput.setCustomValidity(normalizedValue ? "" : "Please enter a task before adding.");
 
     if (!taskForm.reportValidity()) {
         return;
     }
 
-    if (currentEditTaskId) {
-        finishEditTask(normalizedValue, taskPriority.value, taskDueDate.value);
+    if (appState.editingTaskId) {
+        updateTask(appState.editingTaskId, {
+            text: normalizedValue,
+            priority: taskPriority.value,
+            dueDate: taskDueDate.value,
+            category: taskCategory.value
+        });
         return;
     }
 
-    addTask(normalizedValue, taskPriority.value, taskDueDate.value);
+    addTask(normalizedValue, taskPriority.value, taskDueDate.value, taskCategory.value);
     resetForm();
     taskInput.focus();
 });
 
 taskInput.addEventListener("input", () => {
-    const normalizedValue = normalizeTaskText(taskInput.value);
+    const normalizedValue = normalizeText(taskInput.value);
     taskInput.setCustomValidity(normalizedValue ? "" : "Please enter a task before adding.");
 });
 
+taskDueDate.addEventListener("input", updateDateWarning);
+
 cancelEditButton.addEventListener("click", () => {
-    const wasEditing = Boolean(currentEditTaskId);
+    if (!appState.editingTaskId) {
+        return;
+    }
+
     resetForm();
     taskInput.focus();
-    if (wasEditing) {
-        announce("Edit cancelled.");
-    }
+    announce("Edit cancelled.");
 });
 
 filterButtons.forEach((button) => {
     button.addEventListener("click", () => {
-        currentFilter = button.dataset.filter;
-        renderTasks();
-        announce(`Filter set to ${currentFilter}.`);
+        handleFilterChange(button.dataset.filter);
     });
 });
 
 taskSearch.addEventListener("input", () => {
-    renderTasks();
+    handleSearchChange(taskSearch.value);
 });
 
 taskSort.addEventListener("change", () => {
-    renderTasks();
-    announce(`Sorting by ${taskSort.options[taskSort.selectedIndex].text.toLowerCase()}.`);
+    handleSortChange(taskSort.value);
+});
+
+taskCategoryFilter.addEventListener("change", () => {
+    handleCategoryFilterChange(taskCategoryFilter.value);
 });
 
 taskList.addEventListener("change", (event) => {
@@ -482,12 +826,7 @@ taskList.addEventListener("change", (event) => {
         return;
     }
 
-    const listItem = target.closest(".task-item");
-    if (!listItem) {
-        return;
-    }
-
-    const task = tasks.find((item) => item.id === listItem.dataset.taskId);
+    const task = appState.tasks.find((item) => item.id === target.closest(".task-item")?.dataset.taskId);
     if (!task) {
         return;
     }
@@ -509,69 +848,63 @@ taskList.addEventListener("click", (event) => {
         return;
     }
 
-    const taskId = listItem.dataset.taskId;
-    const task = tasks.find((item) => item.id === taskId);
+    const task = appState.tasks.find((item) => item.id === listItem.dataset.taskId);
     if (!task) {
         return;
     }
 
-    const editButton = target.closest(".edit-btn");
-    if (editButton) {
-        startEditTask(taskId);
+    if (target.closest(".edit-btn")) {
+        startEditTask(task.id);
         return;
     }
 
-    const deleteButton = target.closest(".delete-btn");
-    if (!deleteButton) {
+    if (!target.closest(".delete-btn")) {
         return;
     }
 
-    tasks = tasks.filter((item) => item.id !== taskId);
-    if (currentEditTaskId === taskId) {
-        resetForm();
+    const taskIndex = appState.tasks.findIndex((item) => item.id === task.id);
+    if (taskIndex === -1) {
+        return;
     }
 
-    saveTasks();
-    renderTasks();
-    taskInput.focus();
+    removeTasks([{ task: { ...task }, index: taskIndex }], `Deleted: ${task.text}`);
     announce(`Deleted: ${task.text}`);
 });
 
 toggleAllButton.addEventListener("click", () => {
-    if (tasks.length === 0) {
+    if (appState.tasks.length === 0) {
         return;
     }
 
-    const shouldCompleteAll = tasks.some((task) => !task.completed);
-    tasks = tasks.map((task) => ({
+    const shouldCompleteAll = appState.tasks.some((task) => !task.completed);
+    appState.tasks = appState.tasks.map((task) => ({
         ...task,
         completed: shouldCompleteAll
     }));
 
     saveTasks();
+    clearUndoState();
     renderTasks();
     announce(shouldCompleteAll ? "All tasks marked as completed." : "All tasks reopened.");
 });
 
 clearCompletedButton.addEventListener("click", () => {
-    const completedCount = tasks.filter((task) => task.completed).length;
-    if (completedCount === 0) {
+    const completedEntries = appState.tasks
+        .map((task, index) => ({ task: { ...task }, index }))
+        .filter((entry) => entry.task.completed);
+
+    if (completedEntries.length === 0) {
         return;
     }
 
-    const editingTaskWasRemoved = currentEditTaskId
-        ? tasks.some((task) => task.id === currentEditTaskId && task.completed)
-        : false;
-
-    tasks = tasks.filter((task) => !task.completed);
-    if (editingTaskWasRemoved) {
-        resetForm();
-    }
-
-    saveTasks();
-    renderTasks();
-    announce(`${completedCount} completed task${completedCount === 1 ? "" : "s"} cleared.`);
+    removeTasks(
+        completedEntries,
+        `${completedEntries.length} completed task${completedEntries.length === 1 ? "" : "s"} cleared.`
+    );
+    announce(`${completedEntries.length} completed task${completedEntries.length === 1 ? "" : "s"} cleared.`);
 });
+
+undoDeleteButton.addEventListener("click", restoreRemovedTasks);
 
 themeToggle.addEventListener("click", () => {
     const isDarkMode = document.body.classList.contains("dark-mode");
@@ -581,7 +914,7 @@ themeToggle.addEventListener("click", () => {
     announce(nextTheme === "dark" ? "Dark mode enabled." : "Light mode enabled.");
 });
 
-tasks = loadTasks();
-initializeTheme();
+document.addEventListener("keydown", handleKeyboardShortcuts);
+
 resetForm();
-renderTasks();
+initializeApp();

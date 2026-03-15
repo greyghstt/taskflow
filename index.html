@@ -25,7 +25,35 @@
 
     <main class="app-main" id="main-content">
         <section class="task-panel" aria-labelledby="tasks-heading">
-            <h2 id="tasks-heading">Your Tasks</h2>
+            <div class="panel-heading">
+                <div>
+                    <h2 id="tasks-heading">Your Tasks</h2>
+                    <p class="panel-description">Capture work, sort priorities, and keep momentum visible.</p>
+                </div>
+                <p class="keyboard-hint">Shortcuts: <kbd>/</kbd> search, <kbd>N</kbd> new task, <kbd>Esc</kbd> cancel edit</p>
+            </div>
+
+            <section class="overview-grid" aria-label="Task overview">
+                <article class="overview-card">
+                    <p class="overview-label">Completion</p>
+                    <p id="completion-rate" class="overview-value">0%</p>
+                    <div class="progress-track" aria-hidden="true">
+                        <span id="progress-fill" class="progress-fill"></span>
+                    </div>
+                </article>
+                <article class="overview-card">
+                    <p class="overview-label">Pending</p>
+                    <p id="pending-count" class="overview-value">0</p>
+                </article>
+                <article class="overview-card">
+                    <p class="overview-label">Due Soon</p>
+                    <p id="due-soon-count" class="overview-value">0</p>
+                </article>
+                <article class="overview-card">
+                    <p class="overview-label">Categories</p>
+                    <p id="category-count" class="overview-value">0</p>
+                </article>
+            </section>
 
             <form id="task-form" class="task-form">
                 <label for="task-input">Add a new task</label>
@@ -56,9 +84,30 @@
                     </div>
                     <div class="field-group">
                         <label for="task-due-date">Due date</label>
-                        <input id="task-due-date" name="dueDate" type="date">
+                        <input id="task-due-date" name="dueDate" type="date" aria-describedby="date-help">
                     </div>
                 </div>
+                <div class="meta-row meta-row--wide">
+                    <div class="field-group">
+                        <label for="task-category">Category</label>
+                        <input
+                            id="task-category"
+                            name="category"
+                            type="text"
+                            maxlength="40"
+                            placeholder="Example: Work, Study, Personal"
+                            list="task-category-suggestions"
+                        >
+                        <datalist id="task-category-suggestions">
+                            <option value="Work"></option>
+                            <option value="Personal"></option>
+                            <option value="Study"></option>
+                            <option value="Errands"></option>
+                        </datalist>
+                    </div>
+                </div>
+                <p id="date-help" class="form-help">Past dates are allowed, but they will be marked as overdue.</p>
+                <p id="date-warning" class="date-warning" hidden>Selected due date is in the past.</p>
                 <p id="form-help" class="form-help">Press Enter or select Add Task.</p>
             </form>
 
@@ -71,7 +120,7 @@
                 <div class="tools-row">
                     <div class="field-group">
                         <label for="task-search">Search tasks</label>
-                        <input id="task-search" type="search" placeholder="Search by title">
+                        <input id="task-search" type="search" placeholder="Search by title or category">
                     </div>
                     <div class="field-group">
                         <label for="task-sort">Sort by</label>
@@ -81,6 +130,14 @@
                             <option value="priority">Priority</option>
                             <option value="dueDate">Due date</option>
                             <option value="alphabetical">Alphabetical</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="tools-row">
+                    <div class="field-group">
+                        <label for="task-category-filter">Category</label>
+                        <select id="task-category-filter">
+                            <option value="all">All categories</option>
                         </select>
                     </div>
                 </div>
@@ -100,6 +157,11 @@
             </section>
 
             <ul id="task-list" class="task-list" aria-label="Task list"></ul>
+
+            <section id="undo-banner" class="undo-banner" hidden aria-live="polite" aria-atomic="true">
+                <p id="undo-message" class="undo-message">Task deleted.</p>
+                <button type="button" id="undo-delete-btn" class="secondary-btn">Undo</button>
+            </section>
 
             <p id="announcer" class="visually-hidden" aria-live="assertive" aria-atomic="true"></p>
         </section>

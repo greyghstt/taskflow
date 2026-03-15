@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TaskFlow - Task Manager</title>
+    <meta name="description" content="A modern and accessible task manager web application.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header class="app-header">
+        <div class="header-row">
+            <div>
+                <h1>TaskFlow</h1>
+                <p class="subtitle">Plan clearly. Finish confidently.</p>
+            </div>
+            <button type="button" id="theme-toggle" class="theme-toggle" aria-pressed="false" aria-label="Toggle dark mode">
+                Dark Mode
+            </button>
+        </div>
+    </header>
+
+    <main class="app-main" id="main-content">
+        <section class="task-panel" aria-labelledby="tasks-heading">
+            <h2 id="tasks-heading">Your Tasks</h2>
+
+            <form id="task-form" class="task-form">
+                <label for="task-input">Add a new task</label>
+                <div class="input-row">
+                    <input
+                        id="task-input"
+                        name="task"
+                        type="text"
+                        maxlength="120"
+                        placeholder="Example: Prepare project update"
+                        autocomplete="off"
+                        aria-describedby="form-help"
+                        required
+                    >
+                    <div class="form-actions">
+                        <button type="submit" id="add-task-btn">Add Task</button>
+                        <button type="button" id="cancel-edit-btn" class="secondary-btn" hidden>Cancel Edit</button>
+                    </div>
+                </div>
+                <div class="meta-row">
+                    <div class="field-group">
+                        <label for="task-priority">Priority</label>
+                        <select id="task-priority" name="priority">
+                            <option value="medium">Medium</option>
+                            <option value="high">High</option>
+                            <option value="low">Low</option>
+                        </select>
+                    </div>
+                    <div class="field-group">
+                        <label for="task-due-date">Due date</label>
+                        <input id="task-due-date" name="dueDate" type="date">
+                    </div>
+                </div>
+                <p id="form-help" class="form-help">Press Enter or select Add Task.</p>
+            </form>
+
+            <section class="task-status" aria-live="polite" aria-atomic="true">
+                <p id="task-counter">0 tasks total, 0 completed</p>
+                <p id="empty-state" class="empty-state">No tasks yet. Add one to get started.</p>
+            </section>
+
+            <section class="task-tools" aria-label="Search, sort, and manage tasks">
+                <div class="tools-row">
+                    <div class="field-group">
+                        <label for="task-search">Search tasks</label>
+                        <input id="task-search" type="search" placeholder="Search by title">
+                    </div>
+                    <div class="field-group">
+                        <label for="task-sort">Sort by</label>
+                        <select id="task-sort">
+                            <option value="newest">Newest first</option>
+                            <option value="oldest">Oldest first</option>
+                            <option value="priority">Priority</option>
+                            <option value="dueDate">Due date</option>
+                            <option value="alphabetical">Alphabetical</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="bulk-actions" role="group" aria-label="Bulk task actions">
+                    <button type="button" id="toggle-all-btn" class="secondary-btn">Complete All</button>
+                    <button type="button" id="clear-completed-btn" class="secondary-btn">Clear Completed</button>
+                </div>
+            </section>
+
+            <section class="task-filters" aria-label="Filter tasks">
+                <p class="filter-label" id="filter-heading">Show:</p>
+                <div class="filter-buttons" role="group" aria-labelledby="filter-heading">
+                    <button type="button" class="filter-btn is-active" data-filter="all" aria-pressed="true">All</button>
+                    <button type="button" class="filter-btn" data-filter="completed" aria-pressed="false">Completed</button>
+                    <button type="button" class="filter-btn" data-filter="pending" aria-pressed="false">Pending</button>
+                </div>
+            </section>
+
+            <ul id="task-list" class="task-list" aria-label="Task list"></ul>
+
+            <p id="announcer" class="visually-hidden" aria-live="assertive" aria-atomic="true"></p>
+        </section>
+    </main>
+
+    <script src="script.js" defer></script>
+</body>
+</html>

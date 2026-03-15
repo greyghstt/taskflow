@@ -30,6 +30,13 @@
     --badge-category: #7c3aed;
     --badge-due-soon: #b45309;
     --badge-due-today: #0f766e;
+    --badge-completed-time: #0f766e;
+    --undo-bg: rgba(237, 249, 246, 0.94);
+    --undo-border: rgba(15, 118, 110, 0.22);
+    --undo-text: #163049;
+    --undo-button-bg: rgba(255, 255, 255, 0.92);
+    --undo-button-border: rgba(22, 48, 73, 0.2);
+    --undo-button-text: #163049;
 }
 
 * {
@@ -464,6 +471,11 @@ button:disabled {
     background: var(--badge-due-today);
 }
 
+.task-badge.completed-time-badge {
+    color: var(--badge-completed-time);
+    background: color-mix(in srgb, var(--badge-completed-time), white 88%);
+}
+
 .task-actions {
     display: flex;
     flex-wrap: wrap;
@@ -491,13 +503,25 @@ button:disabled {
     gap: 1rem;
     padding: 0.8rem 0.9rem;
     border-radius: var(--radius-md);
-    border: 1px solid color-mix(in srgb, var(--accent), white 65%);
-    background: color-mix(in srgb, var(--accent), white 92%);
+    border: 1px solid var(--undo-border);
+    background: var(--undo-bg);
+    color: var(--undo-text);
     animation: fade-slide 220ms ease-out;
+}
+
+.undo-banner .secondary-btn {
+    background: var(--undo-button-bg);
+    border-color: var(--undo-button-border);
+    color: var(--undo-button-text);
+}
+
+.undo-banner .secondary-btn:hover {
+    background: var(--surface-strong);
 }
 
 .undo-message {
     margin: 0;
+    color: var(--undo-text);
     font-weight: 700;
 }
 
@@ -541,6 +565,13 @@ body.dark-mode {
     --badge-category: #c7a5ff;
     --badge-due-soon: #ffd27d;
     --badge-due-today: #54d2c6;
+    --badge-completed-time: #7fe2d8;
+    --undo-bg: rgba(29, 43, 62, 0.96);
+    --undo-border: rgba(84, 210, 198, 0.3);
+    --undo-text: #e7eff9;
+    --undo-button-bg: rgba(45, 60, 82, 0.98);
+    --undo-button-border: rgba(142, 170, 201, 0.28);
+    --undo-button-text: #e7eff9;
 }
 
 body.dark-mode {
@@ -638,3 +669,4 @@ body.dark-mode {
         flex-direction: column;
     }
 }
+

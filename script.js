@@ -117,6 +117,7 @@ function createTask(taskTextValue, priorityValue, dueDateValue, categoryValue) {
         dueDate: sanitizeDueDate(dueDateValue),
         category: formatCategory(categoryValue),
         completed: false,
+        completedAt: null,
         createdAt: Date.now()
     };
 }
@@ -152,6 +153,7 @@ function loadTasks() {
                 dueDate: sanitizeDueDate(task.dueDate),
                 category: formatCategory(typeof task.category === "string" ? task.category : DEFAULT_CATEGORY),
                 completed: Boolean(task.completed),
+                completedAt: typeof task.completedAt === "number" ? task.completedAt : null,
                 createdAt: typeof task.createdAt === "number" ? task.createdAt : Date.now()
             }))
             .filter((task) => Boolean(task.text));
@@ -290,6 +292,17 @@ function formatDueDate(dueDate) {
               day: "numeric"
           })
         : "";
+}
+
+function formatCompletedTime(completedAt) {
+    if (typeof completedAt !== "number") {
+        return "";
+    }
+
+    return new Date(completedAt).toLocaleTimeString(undefined, {
+        hour: "numeric",
+        minute: "2-digit"
+    });
 }
 
 function updateDateWarning() {
@@ -611,6 +624,10 @@ function createTaskElement(task) {
         taskMeta.appendChild(createBadge("Due Soon", "task-due-soon"));
     }
 
+    if (task.completed && typeof task.completedAt === "number") {
+        taskMeta.appendChild(createBadge(`Finished ${formatCompletedTime(task.completedAt)}`, "completed-time-badge"));
+    }
+
     taskContent.append(taskText, taskMeta);
 
     const taskActions = document.createElement("div");
@@ -832,6 +849,7 @@ taskList.addEventListener("change", (event) => {
     }
 
     task.completed = target.checked;
+    task.completedAt = target.checked ? Date.now() : null;
     saveTasks();
     renderTasks();
     announce(task.completed ? `Completed: ${task.text}` : `Reopened: ${task.text}`);
@@ -877,9 +895,11 @@ toggleAllButton.addEventListener("click", () => {
     }
 
     const shouldCompleteAll = appState.tasks.some((task) => !task.completed);
+    const completedAt = Date.now();
     appState.tasks = appState.tasks.map((task) => ({
         ...task,
-        completed: shouldCompleteAll
+        completed: shouldCompleteAll,
+        completedAt: shouldCompleteAll ? task.completedAt ?? completedAt : null
     }));
 
     saveTasks();
@@ -918,3 +938,4 @@ document.addEventListener("keydown", handleKeyboardShortcuts);
 
 resetForm();
 initializeApp();
+

@@ -29,7 +29,7 @@ TaskFlow is a lightweight task manager built with vanilla HTML, CSS, and JavaScr
 ```
 
 ## How To Run
-1. Open [index.html](/c:/vscode/TEST/index.html) in your browser.
+1. Open [index.html](/c:/vscode/project1/index.html) in your browser.
 2. Add a task, assign a priority, and optionally choose a due date.
 3. Use search, filters, sorting, and bulk actions to manage the list.
 4. Refresh the page to confirm that tasks and theme preferences persist.
